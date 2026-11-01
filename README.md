@@ -6,9 +6,9 @@ Excel, or JSON file, so the dataset can be swapped without rewriting the app.
 
 ## Dashboard preview
 
-![MIS data dashboard preview](docs/dashboard.png)
+![MIS data dashboard preview](docs/Dashboard.png)
 
-<!-- Replace docs/dashboard-preview.svg with your own screenshot, or update the image path above. -->
+<!-- To update the preview, replace docs/Dashboard.png with a new screenshot. -->
 
 ## Project structure
 
@@ -29,7 +29,7 @@ Data_Analysis/                  # project root
 │   └── app.py                  # Streamlit dashboard
 │
 ├── docs/
-│   └── dashboard-preview.svg   # dashboard screenshot placeholder
+│   └── Dashboard.png           # dashboard screenshot
 │
 ├── .streamlit/
 │   └── config.toml             # dashboard theme
