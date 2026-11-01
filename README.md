@@ -6,7 +6,7 @@ Excel, or JSON file, so the dataset can be swapped without rewriting the app.
 
 ## Dashboard preview
 
-![MIS data dashboard preview](docs/dashboard-preview.svg)
+![MIS data dashboard preview](docs/dashboard.png)
 
 <!-- Replace docs/dashboard-preview.svg with your own screenshot, or update the image path above. -->
 
