@@ -4,6 +4,12 @@ A small, end-to-end data project for cleaning raw datasets and exploring them in
 an interactive Streamlit dashboard. It is designed to work with almost any CSV,
 Excel, or JSON file, so the dataset can be swapped without rewriting the app.
 
+## Dashboard preview
+
+![MIS data dashboard preview](docs/dashboard-preview.svg)
+
+<!-- Replace docs/dashboard-preview.svg with your own screenshot, or update the image path above. -->
+
 ## Project structure
 
 ```text
@@ -21,6 +27,9 @@ Data_Analysis/                  # project root
 │
 ├── dashboard/
 │   └── app.py                  # Streamlit dashboard
+│
+├── docs/
+│   └── dashboard-preview.svg   # dashboard screenshot placeholder
 │
 ├── .streamlit/
 │   └── config.toml             # dashboard theme

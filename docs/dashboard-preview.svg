@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-label="Dashboard preview placeholder">
+  <rect width="1200" height="675" fill="#F5F7FB"/>
+  <rect x="40" y="40" width="1120" height="595" rx="18" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="2" stroke-dasharray="10 8"/>
+  <g fill="none" stroke="#2563EB" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="520" y="235" width="160" height="110" rx="10"/>
+    <path d="M560 375h80M600 345v30"/>
+  </g>
+  <text x="600" y="440" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="600" fill="#1F2937">Dashboard preview</text>
+  <text x="600" y="482" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="18" fill="#64748B">Replace this placeholder with a screenshot of dashboard/app.py</text>
+</svg>
