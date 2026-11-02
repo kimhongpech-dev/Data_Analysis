@@ -152,6 +152,7 @@ def filter_sidebar(
             )
             if len(selected) < len(options):
                 df = df[df[column].astype(str).isin(selected)]
+        st.caption("Tip: switch light/dark mode in the ⋮ menu → Settings → Theme.")
     return df
 
 
@@ -184,36 +185,130 @@ def top_categories(df: pd.DataFrame, column: str, limit: int = 10) -> pd.DataFra
     return counts
 
 
+def top_categories_chart(data: pd.DataFrame, category_label: str) -> alt.Chart:
+    """Horizontal bars with the most common value highlighted."""
+    if data.empty:
+        return alt.Chart(pd.DataFrame({"x": [], "y": []})).mark_point()
+
+    top_value = data.iloc[0]["category"]
+    return (
+        alt.Chart(data)
+        .mark_bar(cornerRadiusEnd=3)
+        .encode(
+            x=alt.X("rows:Q", title="Rows"),
+            y=alt.Y("category:N", sort="-x", title=category_label),
+            color=alt.condition(
+                alt.datum.category == top_value,
+                alt.value("#2563EB"),
+                alt.value("#94A3B8"),
+            ),
+            tooltip=[
+                alt.Tooltip("category:N", title=category_label),
+                alt.Tooltip("rows:Q", title="Rows", format=","),
+            ],
+        )
+        .properties(height=max(240, min(460, 34 * len(data) + 40)))
+    )
+
+
+SEVERITY_ORDER = ["Low (<5%)", "Moderate (5-20%)", "High (20%+)"]
+SEVERITY_COLORS = ["#22C55E", "#F59E0B", "#EF4444"]
+
+
+def severity_label(missing_pct: float) -> str:
+    """Map a missing-value percentage to a traffic-light category."""
+    if missing_pct < 5:
+        return SEVERITY_ORDER[0]
+    if missing_pct < 20:
+        return SEVERITY_ORDER[1]
+    return SEVERITY_ORDER[2]
+
+
+def missing_values_chart(data: pd.DataFrame) -> alt.Chart:
+    """Colour-code missing-value bars by severity."""
+    if data.empty:
+        return alt.Chart(pd.DataFrame({"x": [], "y": []})).mark_point()
+
+    plot = data.copy()
+    plot["severity"] = plot["missing_pct"].map(severity_label)
+    return (
+        alt.Chart(plot)
+        .mark_bar(cornerRadiusEnd=3)
+        .encode(
+            x=alt.X(
+                "missing_pct:Q",
+                title="Missing values (%)",
+                scale=alt.Scale(domain=[0, 100]),
+            ),
+            y=alt.Y("column:N", sort="-x", title="Column"),
+            color=alt.Color(
+                "severity:N",
+                title="Severity",
+                scale=alt.Scale(
+                    domain=SEVERITY_ORDER,
+                    range=SEVERITY_COLORS,
+                ),
+                sort=SEVERITY_ORDER,
+            ),
+            tooltip=[
+                alt.Tooltip("column:N", title="Column"),
+                alt.Tooltip("missing:Q", title="Missing cells", format=","),
+                alt.Tooltip("missing_pct:Q", title="Missing %", format=".1f"),
+            ],
+        )
+        .properties(height=max(240, min(420, 34 * len(plot) + 40)))
+    )
+
+
 def aggregate(
-    df: pd.DataFrame, x_column: str, y_column: str | None, measure: str
+    df: pd.DataFrame,
+    x_column: str,
+    y_column: str | None,
+    measure: str,
+    color_column: str | None = None,
 ) -> pd.DataFrame:
-    """Group the data for the explorer chart."""
-    needed = [x_column] + ([y_column] if y_column else [])
+    """Group the data for the explorer chart, optionally by a colour dimension."""
+    needed = [x_column]
+    if y_column:
+        needed.append(y_column)
+    if color_column:
+        needed.append(color_column)
     work = df[needed].dropna(subset=[x_column]).copy()
+
+    output_columns = ["category", "value"] + (["series"] if color_column else [])
+    if work.empty:
+        return pd.DataFrame(columns=output_columns)
 
     if pd.api.types.is_datetime64_any_dtype(work[x_column]):
         span = work[x_column].max() - work[x_column].min()
         frequency = "MS" if span.days > 180 else "D"
-        grouped = work.set_index(x_column).resample(frequency)
-        if measure == "Count":
-            values = grouped.size()
-        elif measure == "Sum":
-            values = grouped[y_column].sum()
-        else:
-            values = grouped[y_column].mean()
-        out = values.reset_index(name="value").rename(columns={x_column: "category"})
+        keys: list[object] = [pd.Grouper(key=x_column, freq=frequency)]
+        if color_column:
+            keys.append(color_column)
+        grouped = work.groupby(keys, dropna=False, observed=True)
     else:
-        grouped = work.groupby(x_column, dropna=False)
-        if measure == "Count":
-            values = grouped.size()
-        elif measure == "Sum":
-            values = grouped[y_column].sum()
-        else:
-            values = grouped[y_column].mean()
-        out = values.reset_index(name="value").rename(columns={x_column: "category"})
+        keys = [x_column] + ([color_column] if color_column else [])
+        grouped = work.groupby(keys, dropna=False, observed=True)
 
-        if len(out) > 30:
-            out = out.nlargest(30, "value")
+    if measure == "Count":
+        values = grouped.size()
+    elif measure == "Sum":
+        values = grouped[y_column].sum()
+    else:
+        values = grouped[y_column].mean()
+
+    out = values.reset_index(name="value").rename(columns={x_column: "category"})
+    if color_column:
+        out = out.rename(columns={color_column: "series"})
+        out["series"] = out["series"].fillna("Not provided").astype(str)
+
+    is_date = pd.api.types.is_datetime64_any_dtype(out["category"])
+    if not is_date:
+        out["category"] = out["category"].astype(str)
+        if out["category"].nunique() > 30:
+            totals = out.groupby("category")["value"].sum()
+            keep = set(totals.nlargest(30).index)
+            out = out[out["category"].isin(keep)]
         out = out.sort_values("value", ascending=False)
 
     return out
@@ -224,11 +319,23 @@ def explorer_chart(
     chart_type: str,
     x_title: str,
     metric_title: str,
+    series_title: str | None = None,
 ) -> alt.Chart:
     if data.empty:
         return alt.Chart(pd.DataFrame({"x": [], "y": []})).mark_point()
 
+    has_series = series_title is not None and "series" in data.columns
     is_date = pd.api.types.is_datetime64_any_dtype(data["category"])
+
+    category_tooltip = (
+        alt.Tooltip("category:T", title=x_title)
+        if is_date
+        else alt.Tooltip("category:N", title=x_title)
+    )
+    tooltip = [category_tooltip]
+    if has_series:
+        tooltip.append(alt.Tooltip("series:N", title=series_title))
+    tooltip.append(alt.Tooltip("value:Q", title=metric_title, format=",.2f"))
 
     if chart_type == "Line":
         x_encoding = (
@@ -236,49 +343,64 @@ def explorer_chart(
             if is_date
             else alt.X("category:N", title=x_title)
         )
+        encoding: dict[str, object] = {
+            "x": x_encoding,
+            "y": alt.Y("value:Q", title=metric_title),
+            "tooltip": tooltip,
+        }
+        if has_series:
+            encoding["color"] = alt.Color("series:N", title=series_title)
         return (
             alt.Chart(data)
             .mark_line(point=True)
-            .encode(
-                x=x_encoding,
-                y=alt.Y("value:Q", title=metric_title),
-                tooltip=[
-                    alt.Tooltip("category:T", title=x_title)
-                    if is_date
-                    else alt.Tooltip("category:N", title=x_title),
-                    alt.Tooltip("value:Q", title=metric_title, format=",.2f"),
-                ],
-            )
+            .encode(**encoding)
             .properties(height=380)
         )
 
     if is_date:
+        y_encoding = alt.Y("value:Q", title=metric_title)
+        if has_series:
+            y_encoding = alt.Y("value:Q", title=metric_title, stack="zero")
+        encoding = {
+            "x": alt.X("category:T", title=x_title),
+            "y": y_encoding,
+            "tooltip": tooltip,
+        }
+        if has_series:
+            encoding["color"] = alt.Color("series:N", title=series_title)
         return (
             alt.Chart(data)
-            .mark_bar(cornerRadiusEnd=3)
-            .encode(
-                x=alt.X("category:T", title=x_title),
-                y=alt.Y("value:Q", title=metric_title),
-                tooltip=[
-                    alt.Tooltip("category:T", title=x_title),
-                    alt.Tooltip("value:Q", title=metric_title, format=",.2f"),
-                ],
-            )
+            .mark_bar(cornerRadiusEnd=2)
+            .encode(**encoding)
             .properties(height=380)
         )
 
+    if has_series:
+        encoding = {
+            "x": alt.X("value:Q", title=metric_title, stack="zero"),
+            "y": alt.Y(
+                "category:N",
+                title=x_title,
+                sort=alt.EncodingSortField(
+                    field="value", op="sum", order="descending"
+                ),
+            ),
+            "color": alt.Color("series:N", title=series_title),
+            "tooltip": tooltip,
+        }
+    else:
+        encoding = {
+            "x": alt.X("value:Q", title=metric_title),
+            "y": alt.Y("category:N", sort="-x", title=x_title),
+            "tooltip": tooltip,
+        }
+
+    category_count = data["category"].nunique()
     return (
         alt.Chart(data)
-        .mark_bar(cornerRadiusEnd=3)
-        .encode(
-            x=alt.X("value:Q", title=metric_title),
-            y=alt.Y("category:N", sort="-x", title=x_title),
-            tooltip=[
-                alt.Tooltip("category:N", title=x_title),
-                alt.Tooltip("value:Q", title=metric_title, format=",.2f"),
-            ],
-        )
-        .properties(height=max(240, min(460, 34 * len(data) + 40)))
+        .mark_bar(cornerRadiusEnd=2)
+        .encode(**encoding)
+        .properties(height=max(240, min(460, 34 * category_count + 40)))
     )
 
 
@@ -441,7 +563,7 @@ with overview_tab:
                 st.subheader(f"Distribution of {prettify(numeric_column)}")
                 histogram = (
                     alt.Chart(filtered.dropna(subset=[numeric_column]))
-                    .mark_bar(cornerRadiusEnd=3)
+                    .mark_bar(cornerRadiusEnd=3, color="#2563EB")
                     .encode(
                         x=alt.X(
                             f"{numeric_column}:Q",
@@ -476,12 +598,12 @@ with overview_tab:
                 )
                 counts = top_categories(filtered, category_column)
                 st.subheader(f"Top values in {prettify(category_column)}")
-                st.bar_chart(
-                    counts,
-                    x="category",
-                    y="rows",
-                    horizontal=True,
+                st.altair_chart(
+                    top_categories_chart(counts, prettify(category_column)),
                     alt=f"Row counts for the most common values in {prettify(category_column)}",
+                )
+                st.caption(
+                    "Bar length shows the number of rows; the most common value is highlighted."
                 )
             elif numeric_columns:
                 numeric_column = numeric_columns[0]
@@ -512,7 +634,13 @@ with overview_tab:
 
 with explore_tab:
     if st.session_state.get("explore_dataset") != dataset_key:
-        for key in ("explore_x", "explore_measure", "explore_chart", "explore_y"):
+        for key in (
+            "explore_x",
+            "explore_measure",
+            "explore_chart",
+            "explore_y",
+            "explore_color",
+        ):
             st.session_state.pop(key, None)
         st.session_state["explore_dataset"] = dataset_key
 
@@ -544,26 +672,57 @@ with explore_tab:
             key="explore_chart",
         )
 
+    color_options = [
+        column
+        for column in filtered.columns
+        if column not in numeric_columns
+        and column not in date_columns
+        and column != x_column
+        and 1 < filtered[column].nunique(dropna=True) <= 12
+    ]
+    color_column = None
+    if color_options:
+        valid_colors = ["None"] + color_options
+        if st.session_state.get("explore_color") not in valid_colors:
+            st.session_state.pop("explore_color", None)
+        color_by = st.selectbox(
+            "Color by (optional)",
+            valid_colors,
+            key="explore_color",
+            help="Split the chart into one colour per category.",
+        )
+        if color_by != "None":
+            color_column = color_by
+
     y_column = None
     if measure in {"Sum", "Average"}:
         y_column = st.selectbox("Value column", numeric_columns, key="explore_y")
 
     metric_title = "Rows" if measure == "Count" else f"{measure} of {prettify(y_column)}"
-    chart_data = aggregate(filtered, x_column, y_column, measure)
-    if chart_type == "Line" and not pd.api.types.is_datetime64_any_dtype(
-        chart_data["category"]
+    series_title = prettify(color_column) if color_column else None
+    chart_data = aggregate(filtered, x_column, y_column, measure, color_column)
+    if (
+        chart_type == "Line"
+        and not chart_data.empty
+        and not pd.api.types.is_datetime64_any_dtype(chart_data["category"])
     ):
-        chart_data = chart_data.sort_values("category")
+        sort_columns = ["category"] + (["series"] if color_column else [])
+        chart_data = chart_data.sort_values(sort_columns)
     chart = explorer_chart(
         chart_data,
         chart_type,
         prettify(x_column),
         metric_title,
+        series_title,
     )
     st.altair_chart(
         chart,
         alt=f"{metric_title} by {prettify(x_column)}",
     )
+    if color_column:
+        st.caption(
+            f"Colour splits **{prettify(x_column)}** by **{prettify(color_column)}**."
+        )
 
     with st.container(border=True):
         st.subheader("Filtered data")
@@ -576,6 +735,23 @@ with explore_tab:
 
 with quality_tab:
     summary = quality_summary(filtered)
+
+    overall_missing_pct = (
+        filtered.isna().to_numpy().mean() * 100 if filtered.size else 0
+    )
+    if overall_missing_pct == 0:
+        st.badge("Complete", color="green", icon=":material/check_circle:")
+        st.caption("No missing cells in the current selection.")
+    elif overall_missing_pct < 5:
+        st.badge("Minor gaps", color="orange", icon=":material/info:")
+        st.caption(
+            f"{overall_missing_pct:.1f}% of cells are missing in the current selection."
+        )
+    else:
+        st.badge("Needs attention", color="red", icon=":material/warning:")
+        st.caption(
+            f"{overall_missing_pct:.1f}% of cells are missing. Review the columns below."
+        )
 
     with st.container(horizontal=True):
         st.metric("Duplicate rows", f"{int(filtered.duplicated().sum()):,}", border=True)
@@ -592,19 +768,22 @@ with quality_tab:
 
     with st.container(border=True):
         st.subheader("Missing values by column")
-        missing_columns = summary[summary["missing"] > 0].sort_values(
-            "missing_pct", ascending=False
+        missing_columns = (
+            summary[summary["missing"] > 0]
+            .sort_values("missing_pct", ascending=False)
+            .head(15)
         )
         if missing_columns.empty:
             st.success("No missing values in the current selection.")
         else:
-            st.bar_chart(
-                missing_columns.head(15),
-                x="column",
-                y="missing_pct",
-                horizontal=True,
-                alt="Percentage of missing values by column",
+            st.altair_chart(
+                missing_values_chart(missing_columns),
+                alt=(
+                    "Percentage of missing values by column, colour-coded "
+                    "from green to red by severity"
+                ),
             )
+            st.caption("Green: under 5% missing · Amber: 5-20% · Red: 20% or more.")
 
     with st.container(border=True):
         st.subheader("Column summary")

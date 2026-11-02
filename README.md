@@ -117,13 +117,25 @@ It includes:
   and a data preview.
 - **Filters** – automatically generated sidebar filters for categorical columns
   with 2–25 unique values, plus a download button for the filtered data.
-- **Explore** – group by any column, choose Count / Sum / Average, and switch
-  between bar and line charts.
-- **Data quality** – duplicate rows, missing-value percentages by column, and a
+- **Explore** – group by any column, choose Count / Sum / Average, add an
+  optional colour dimension, and switch between bar and line charts.
+- **Data quality** – duplicate rows, colour-coded missing-value severity, and a
   completeness summary for every column.
 
 Charts and tables are generated from the column types, so the app adapts when
 you replace the dataset.
+
+## Appearance and colour
+
+The dashboard ships with light and dark themes. Use the **⋮ → Settings → Theme**
+menu in the running app to switch appearance. Theme tokens and chart palettes
+live in `.streamlit/config.toml`.
+
+Colour is used to support analysis:
+
+- The most common category in the Overview is highlighted in blue.
+- Missing-value bars are green (under 5%), amber (5–20%), or red (20% or more).
+- **Color by** in the Explore tab splits bars or lines into categorical series.
 
 ## Notebook
 
